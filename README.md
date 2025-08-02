@@ -1,5 +1,6 @@
 # toystacky-2
 
+```
  _____   ___   __    __   ____  _____  ---      ___  | | __  __    __     
 |_   _| / _ \  \ \  / / / ___| |_   _| \ - \   / __| | |/ /  \ \  / /
   | |  | | | |  \ \/ /  \___ \   | |   / -| | | /    | ' /    \ \/ / 
@@ -12,5 +13,5 @@
                       |___|      / /    |___|
                                / /__  
                               /_____|
-
+```
 This is a new version of ToyStacky running on a microcontroller with keyboard and a VGA monitor
