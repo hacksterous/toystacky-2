@@ -1,0 +1,15 @@
+../Core/Src/microrl.c:189:12:split	8
+../Core/Src/microrl.c:214:20:print_prompt	1
+../Core/Src/microrl.c:256:13:terminal_move_cursor	3
+../Core/Src/microrl.c:281:13:terminal_reset_cursor	1
+../Core/Src/microrl.c:301:13:terminal_print_line	2
+../Core/Src/microrl.c:361:13:hist_search	14
+../Core/Src/microrl.c:430:12:microrl_insert_text	3
+../Core/Src/microrl.c:226:20:terminal_newline.isra	1
+../Core/Src/microrl.c:453:13:microrl_backspace	2
+../Core/Src/microrl.c:319:6:microrl_init	1
+../Core/Src/microrl.c:342:6:microrl_set_complete_callback	1
+../Core/Src/microrl.c:348:6:microrl_set_execute_callback	1
+../Core/Src/microrl.c:354:6:microrl_set_sigint_callback	1
+../Core/Src/microrl.c:535:6:new_line_handler	12
+../Core/Src/microrl.c:563:6:microrl_insert_char	51

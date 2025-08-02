@@ -1,0 +1,17 @@
+../Core/Src/TS-core-tokenize.c:6:5:is_alpha	2
+../Core/Src/TS-core-tokenize.c:11:5:is_digit	1
+../Core/Src/TS-core-tokenize.c:16:5:is_hexit	2
+../Core/Src/TS-core-tokenize.c:21:5:is_octit	1
+../Core/Src/TS-core-tokenize.c:26:5:is_bit	1
+../Core/Src/TS-core-tokenize.c:31:5:is_alphanum	3
+../Core/Src/TS-core-tokenize.c:36:7:skip_whitespace	2
+../Core/Src/TS-core-tokenize.c:43:7:extract_bignum_as_string	4
+../Core/Src/TS-core-tokenize.c:62:7:extract_dec_bignum	2
+../Core/Src/TS-core-tokenize.c:68:7:extract_hex_bignum	2
+../Core/Src/TS-core-tokenize.c:74:7:extract_oct_bignum	2
+../Core/Src/TS-core-tokenize.c:80:7:extract_bin_bignum	2
+../Core/Src/TS-core-tokenize.c:87:7:extract_bignum	6
+../Core/Src/TS-core-tokenize.c:109:7:extract_string	4
+../Core/Src/TS-core-tokenize.c:132:7:extract_realnum	14
+../Core/Src/TS-core-tokenize.c:179:7:extract_complexnum	5
+../Core/Src/TS-core-tokenize.c:215:7:tokenize	26

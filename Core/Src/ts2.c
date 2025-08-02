@@ -1,0 +1,743 @@
+/*
+(C) Anirban Banerjee 2025
+License: GNU GPL v3
+*/
+#ifdef _UNIX
+#include <termios.h>
+#include "../microrl/unix.h"
+#include "../microrl/microrl.h"
+#endif
+#include <unistd.h>
+#include "TS-core-miscel.h"
+#include "TS-core-ledger.h"
+#include "TS-core-stack.h"
+#include "TS-core-numString.h"
+#include "TS-core-math.h"
+#include "main.h"
+#include "ts2.h"
+
+// the putchar override is from ST website:
+//https://community.st.com/t5/stm32-mcus/how-to-redirect-the-printf-function-to-a-uart-for-debug-messages/ta-p/49865
+#ifndef _UNIX
+
+extern UART_HandleTypeDef huart1; 
+extern UART_HandleTypeDef huart2; 
+static uint8_t UART1RxBuffer[1] = {0};
+
+void uartSendString(char* s) {
+	HAL_UART_Transmit(&huart1, (uint8_t *)&s[0], strlen(s), HAL_MAX_DELAY);
+}
+
+void uartSendNChars(char* s, int n) {
+	HAL_UART_Transmit(&huart1, (uint8_t *)&s[0], n, HAL_MAX_DELAY);
+}
+
+void uart2SendNChars(char* s, int n) {
+	for (int i = 0; i < n; i++)
+		HAL_UART_Transmit(&huart2, (uint8_t *)&s[i], 1, HAL_MAX_DELAY);
+}
+
+void uart2SendChar(char c) {
+	HAL_UART_Transmit(&huart2, (uint8_t *)&c, 1, HAL_MAX_DELAY);
+}
+
+int __io_putchar(int ch) {
+	HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+
+	//UART2 is connected to VGA FPGA
+	HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, 1);
+	return ch;
+}
+#endif
+
+ComplexDouble callVectorMath1ParamFunction(int fnindex, ComplexDouble summed, ComplexDouble sqsummed, ComplexDouble rsummed, int n) {
+	if (fnindex < 0) return makeComplex(0.0, 0.0);
+	return mathfnvec1param[fnindex](summed, sqsummed, rsummed, n);
+}
+
+ComplexDouble call1ParamMathFunction(int fnindex, ComplexDouble input) {
+	return mathfn1param[fnindex](input);
+}
+
+double call1ParamRealFunction(int fnindex, ComplexDouble input) {
+	return realfn1param[fnindex](input);
+}
+
+ComplexDouble call2ParamMathFunction(int fnindex, ComplexDouble input, ComplexDouble second) {
+	return mathfn2param[fnindex](input, second);
+}
+
+void call1ParamBigIntVoidFunction(int fnindex, bigint_t *x, char* res) {
+	bigfnvoid1param[fnindex](x, res);
+}
+
+void call2ParamBigIntVoidFunction(int fnindex, bigint_t *x, bigint_t *y, bigint_t *res) {
+	bigfnvoid2param[fnindex](x, y, res);
+}
+
+int call2ParamBigIntIntFunction(int fnindex, bigint_t *x, bigint_t *y) {
+	return bigfnint2param[fnindex](x, y);
+}
+
+void printLedger(Ledger* ledger) {
+	if (ledger->varCount > 0) printf("printLedger:\r\n");
+	else return;
+	uint32_t varCount = 0;
+	while (varCount < MAX_VARIABLES) {
+		Variable* variable = &ledger->variables[varCount];
+		//printf("printLedger ===================== varCount = %d\n", varCount);
+		if (varCount >= ledger->varCount) break;
+		if (variable->name[0] == '\0') {
+			varCount++;
+			continue; //skip the empty variable pods
+		}
+		if (variable->type == VARIABLE_TYPE_STRING) {
+			printf("Variable %s at vartable index %d: %s\r\n", variable->name, (int)varCount, ledger->memory + variable->value.stringValueIndex);
+		} else {
+			printf("Variable %s at vartable index %d: %.15Lf\r\n", variable->name, (int)varCount, variable->value.doubleValue.real);
+		}
+		varCount++;
+	}
+}
+
+void printMemory(Ledger* ledger) {
+	for (int i = 0; i < ledger->memoryOffset; i += 16) {
+		printf("%04X: ", i);
+
+		for (int j = 0; j < 16; j++) {
+			if (i + j < ledger->memoryOffset) {
+				printf("%02X ", (unsigned char)ledger->memory[i + j]);
+			} else {
+				printf("   ");
+			}
+		}
+
+		printf(": ");
+		for (int j = 0; j < 16; j++) {
+			if (i + j < ledger->memoryOffset) {
+				char ch = ledger->memory[i + j];
+				if (ch >= 32 && ch <= 126) {
+					putchar(ch);
+				} else {
+					putchar('.');
+				}
+			} else {
+				putchar(' ');
+			}
+		}
+		putchar('\r');
+		putchar('\n');
+	}
+}
+
+void printStack(Strack* s, int count, bool firstLast) {
+	if (stackIsEmpty(s)) {
+		//printf("Stack is empty!\r\n");
+		return;
+	}
+	//ensure the count is within the range of the stack elements
+	if (count == 0 || (count > s->topLen + 1)) 
+		count = s->topLen + 1;
+
+	//printf("printStack: s->topStr = %d\r\n", s->topStr);
+	//printf("printStack: s->topLen = %d\r\n", s->topLen);
+	//printf("Printing %d entries from the top of the stack:\r\n", count);
+	char* stringPtr;
+	size_t stringLen = -1;
+	int8_t meta;
+	int8_t barrier;
+	//int rightOflowIndicatorPos = -1;
+	//char display[STRING_SIZE]; //coadiutor = helper
+	if (firstLast) {
+		for (int i = 0; i < count; i++) {
+			//printf("printStack: s->stackLen[%d] = %lu\r\n", i, s->stackLen[s->topLen - i]);
+			stringLen += s->stackLen[s->topLen - i] & 0x0fffffff;
+		}
+		//now s->topStr - stringLen will point to the first string
+		//printf("printStack - doing firstLast -- before FOR loop -- topLen = %d, stringLen = %lu\r\n", s->topLen, stringLen);
+		for (int i = 0; i < count; i++) {
+			//printf("printStack - doing firstLast -- s->topLen = %d and stringLen = %lu\r\n", s->topLen, stringLen);
+			stringPtr = &s->stackStr[s->topStr - stringLen];
+			meta = (s->stackLen[s->topLen - count + i + 1] >> 28) & 0xf;
+			//printf("printStack: at first barrier = %d\r\n", barrier);
+			barrier = meta & 0x8;
+			meta = meta & 0x7;
+			//printf("printStack: barrier = %d meta = %s\r\n", barrier, DEBUGMETA[meta]);
+			//printf("printStack - doing firstLast -- s->topLen = %d and stringLen = %lu and meta = %d\r\n", s->topLen, stringLen, meta);
+			//printf("\t%s meta = %s %s\r\n", 
+			//		stringPtr, 
+			//		DEBUGMETA[meta], (barrier)? "BARRIER":"");
+			printf("\t%s\t\t%s\r\n", stringPtr, (barrier)? "(B)":"");
+			stringLen -= strlen(stringPtr) + 1;
+		}
+	} else {
+		for (int i = s->topLen; i > s->topLen - count; i--) {		
+			stringLen += s->stackLen[i] & 0xfffffff;
+			stringPtr = &s->stackStr[s->topStr - stringLen];
+			printf("\t%s\r\n", stringPtr);
+		}
+	}
+}
+
+uint8_t conditionalData(size_t execData) {
+	//data being currently entered is a conditional if/else
+	return (execData & 0x7);
+}
+
+int is1ParamBigIntFunction(const char* token) {
+	for (int i = 0; i < NUMBIGINT1FNS; i++) {
+		if (strcmp(bigfnvoid1paramname[i], token) == 0) return i;
+	}
+	return -1;
+}
+
+int isMatFunction(const char* token) {
+	for (int i = 0; i < NUMMATRIXPARAMFN; i++) {
+		if (strcmp(matrixfnname[i], token) == 0) return i;
+	}
+	return -1;
+}
+
+int is2ParamFunction(char* token) {
+	//lcase(token);
+	for (int i = 0; i < NUMMATH2PARAMFNOP; i++) {
+		if (strcmp(mathfnop2paramname[i], token) == 0) return i;
+	}
+	return -1;
+}
+
+int is1ParamFunction(const char* token) {
+	//lcase(token);
+	for (int i = 0; i < NUMMATH1PARAMFN + NUMREAL1PARAMFN; i++) {
+		if (strcmp(mathfn1paramname[i], token) == 0) return i;
+	}
+	return -1;
+}
+
+int is1ParamTrigFunction(const char* token) {
+	for (int i = 0; i < NUMMATH1PARAMTRIGFN; i++) {
+		if (strcmp(mathfn1paramname[i], token) == 0) return 1;
+	}
+	for (int i = NUMMATH1PARAMTRIGFN; i < NUMMATH1PARAMTRIGANTIFN; i++) {
+		if (strcmp(mathfn1paramname[i], token) == 0) return 2;
+	}
+	return 0;
+}
+
+int isVec1ParamFunction(const char* token) {
+	for (int i = 0; i < NUMVECFNS; i++) {
+		if (strcmp(vecfn1paramname[i], token) == 0) return i;
+	}
+	return -1;
+}
+
+bool processPrint(Machine* vm, char* token) {
+	if (varNameIsLegal(token)) {
+		strcpy(vm->bak, token);
+		int vt = findVariable(&vm->ledger, vm->bak);
+		if (vt == VARIABLE_TYPE_COMPLEX) {
+			ComplexDouble c = fetchVariableComplexValue(&vm->ledger, vm->bak);
+			if (complexToString(c, vm->coadiutor, vm->precision, vm->notationStr)) { 
+				printf("\t%s = %s\r\n", vm->bak, vm->coadiutor);
+			}
+		} else if (vt == VARIABLE_TYPE_STRING) {
+			if (getVariableStringVecMatValue(&vm->ledger, token, vm->coadiutor)) { //returns true
+				printf("\t%s = %s\r\n", vm->bak, vm->coadiutor);
+			}
+		} else {
+			FAILANDRETURNVAR(true, vm->error, "Error: no variable '%s'.", fitstr(vm->coadiutor, vm->bak, 10))
+		}
+	} else {
+		FAILANDRETURNVAR(true, vm->error, "Error: no variable '%s'.", fitstr(vm->coadiutor, token, 10))
+	}
+	return true;
+}
+
+void initStacks(Machine* vm) {
+	stackInit(&vm->userStack);
+	UintStackInit(&vm->execStack);
+}
+
+void initMachine(Machine* vm) {
+	initializeLedger(&vm->ledger);
+	initStacks(vm);
+	//after a push, last will have ToS-1, 
+	//after a pop, last will have the previous ToS
+	strcpy(vm->acc, "0");
+	strcpy(vm->bak, "0");
+	strcpy(vm->error, "No error.");
+	strcpy(vm->lastX, "0");
+	strcpy(vm->lastY, "0");
+
+	vm->frequency = 1;
+	vm->modeDegrees = false;
+	vm->partialVector = false;
+	vm->partialMatrix = false;
+	vm->partialComplex = false;
+	vm->cmdPage = 0;
+	vm->altState = 0;
+	vm->precision = 15;
+	strcpy(vm->notationStr, "Lg");
+	vm->bigMod.length = -1;
+	vm->width = 64; //max = 18446744073709551616	
+
+	vm->locationLat = 12.9716;
+	vm->locationLong = 77.5946;
+	//vm->locationLat = 22.5726;
+	//vm->locationLong = 88.3639;
+	vm->locationTimeZone = 5.5;
+	//zhr=5.5, latt=22.5726, longt=88.3639): Kolkata
+	//zhr=5.5, latt=12.9716, longt=77.5946): Bangalore
+	vm->echoRxToTx = true;
+}
+
+void printRegisters(Machine* vm) {
+	printf("\tError: %s\r\n", (vm->error[0] != '\0')? vm->error: "\"\"");
+}
+
+void interpret(Machine* vm, char* sourceCode) {
+	char* input;
+	char output[STRING_SIZE];
+	bool success;
+	input = sourceCode;
+	//printf("calling tokenize with sourceCode = %s, length of sourceCode = %d\r\n", sourceCode, strlen(sourceCode));
+	do {
+		strcpy(vm->error, "No error.");
+		input = tokenize(input, output);
+		if (output[0] == '\0') break;
+		success = process(vm, output);
+		if ((strcmp(vm->error,"No error.") != 0) || !success) break;
+	} while (input[0] != '\0');
+}
+
+extern char _end;   // Symbol defined by the linker (end of bss)
+extern char _estack; // Symbol defined by the linker (top of stack)
+
+void showScreen(Machine* vm) {
+	char *heap_end = (char *)sbrk(0);
+	uint32_t free_memory = (uint32_t)&_estack - (uint32_t)heap_end;
+	printf("======================================================\r\n");
+	printf("\tMode: %s %s, free heap: %lu bytes\r\n", (vm->modeDegrees)? "Degrees": "Radian", (vm->modePolar)? "Polar": "Cartesian",
+		(unsigned long)free_memory);
+	printStack(&vm->userStack, 0, true);
+	printRegisters(vm);
+	printf("======================================================\r\n");
+	uartSendString(PROMPTSTR);
+	uart2SendNChars(PROMPTSTR, PROMPTSTRLEN);
+}
+
+int getinput (Machine* vm, char* line) {
+	char cin;
+	char lastCode;
+	int varLen;
+	int varCursor;
+	int varEscapeState;
+	//varLen and varCursor are both zero-indexed
+	//so, varLen = strlen() - 1
+	varLen = 0; 
+	varCursor = 0;
+	lastCode = '\0';
+	varEscapeState = 0; //ESC code state
+	while (1) {
+		HAL_UART_Receive (&huart1, UART1RxBuffer, 1, HAL_MAX_DELAY);
+		cin = (char)(*UART1RxBuffer);
+		switch (cin) {
+			//-----------------------------------------------------
+			case KEY_ETX: //^C
+				return 3;
+				break;
+			//-----------------------------------------------------
+			case KEY_EOT: //^D
+				return 4;
+				break;
+			//-----------------------------------------------------
+			case KEY_CR:
+			case KEY_LF:
+				line[varLen] = '\0';
+				printf("\r\n");
+				return 0;
+			//-----------------------------------------------------
+			case KEY_HT:
+				//FIXME: completion
+				varEscapeState = 0;
+				line[varCursor++] = ' ';// string entry
+				varLen++; //keep in sync
+				uartSendString(" "); //add space
+				uart2SendChar(FPGA_CMD_SPC); //add space
+				break;
+			//-----------------------------------------------------
+			case KEY_ESC:
+				if (varEscapeState == 0) varEscapeState = 1;
+				else varEscapeState = 0;
+				//don't echo
+				break;
+			//-----------------------------------------------------
+			case '[':
+				if (varEscapeState == 1) {
+					varEscapeState = 2;
+					//don't echo
+				} else if (varEscapeState == 0) {
+					if (varLen < STRING_SIZE - 1) {
+						line[varCursor++] = '[';
+						varLen++;
+						HAL_UART_Transmit(&huart1, (uint8_t *)&cin, 1, 1);
+						HAL_UART_Transmit(&huart2, (uint8_t *)&cin, 1, 1);
+					}
+				} else {
+					varEscapeState = 0;
+				}
+				break;
+			//-----------------------------------------------------
+			case 'A': //up
+			case 'B': //down
+				//ignore up/down keys for now
+				//FIXME: command history
+				if (varEscapeState == 0) {
+					if (varLen < STRING_SIZE - 1) {
+						line[varCursor++] = cin;
+						varLen++;
+					}
+				} 
+				HAL_UART_Transmit(&huart1, (uint8_t *)&cin, 1, 1);
+				HAL_UART_Transmit(&huart2, (uint8_t *)&cin, 1, 1);
+				break;
+			//-----------------------------------------------------
+			case '1':
+			case '2':
+			case '3':
+			case '4':
+			case '5':
+			case '6':
+			case '7':
+			case '8':
+			case '9':
+				if (varEscapeState == 0) {
+					if (varLen < STRING_SIZE - 1) {
+						line[varCursor++] = cin;
+						varLen++;
+						HAL_UART_Transmit(&huart1, (uint8_t *)&cin, 1, 1);
+						HAL_UART_Transmit(&huart2, (uint8_t *)&cin, 1, 1);
+					}
+				} else if (varEscapeState == 2) {
+					lastCode = cin;
+					varEscapeState = 3;
+				} else if (varEscapeState == 3) {
+					if (lastCode == '1' || lastCode == '2')
+						varEscapeState = 4;
+				}
+				break;
+			//-----------------------------------------------------
+			case '~':
+				if (varEscapeState == 0) {
+					if (varLen < STRING_SIZE - 1) {
+						line[varCursor++] = cin;
+						varLen++;
+						HAL_UART_Transmit(&huart1, (uint8_t *)&cin, 1, 1);
+						HAL_UART_Transmit(&huart2, (uint8_t *)&cin, 1, 1);
+					}
+				} else if (varEscapeState == 3) {
+					switch (lastCode) {
+						case '1': //home
+							break;
+						case '2': //insert
+							break;
+						case '3': //delete
+							if (varLen < STRING_SIZE - 1) {
+								line[varCursor] = ' ';
+								uartSendString(" \033[D"); //overwrite with space and move left
+								uart2SendChar(FPGA_CMD_DEL);
+							}
+							break;
+						case '4': //pgup
+							break;
+						case '5':
+							break;
+						case '6':
+							break;
+						case '7':
+							break;
+						case '8':
+							break;
+						default:
+							break;
+					}
+				} else if (varEscapeState == 4) {
+					if (lastCode == '1') {
+						switch (cin) {
+							case '0': //F0
+								break;
+							case '1': //F1
+								break;
+							case '2': //
+								break;
+							case '3': //
+								break;
+							case '4': //
+								break;
+							case '5': //F5
+								break;
+							case '6': //null
+								break;
+							case '7': //F6
+								break;
+							case '8': //F7
+								break;
+							default:
+								break;
+						}
+					} //else if (lastCode == '1') ...
+				}
+				varEscapeState = 0;
+				lastCode = '\0';
+				break;
+			//-----------------------------------------------------
+			case 'C':
+				if (varEscapeState == 2) { // ESC [ C right
+					if (varCursor < varLen) {
+						varCursor++;
+						uartSendString("\033[C"); //move right
+						uart2SendChar(FPGA_CMD_RIGHT);
+					}
+				} else if (varEscapeState == 0) {
+					if (varLen < STRING_SIZE - 1) {
+						line[varCursor++] = 'C';
+						varLen++;
+						HAL_UART_Transmit(&huart1, (uint8_t *)&cin, 1, 1);
+						HAL_UART_Transmit(&huart2, (uint8_t *)&cin, 1, 1);
+					}
+				}
+				varEscapeState = 0;
+				break;
+			//-----------------------------------------------------
+			case 'D':
+				if (varEscapeState == 2) { // ESC [ D left
+					if (varCursor > 0) {
+						varCursor--;
+						uartSendString("\033[D"); //move left
+						uart2SendChar(FPGA_CMD_LEFT);
+					}
+				} else if (varEscapeState == 0) {
+					if (varLen < STRING_SIZE - 1) {
+						line[varCursor++] = 'D';
+						varLen++;
+						HAL_UART_Transmit(&huart1, (uint8_t *)&cin, 1, 1);
+						HAL_UART_Transmit(&huart2, (uint8_t *)&cin, 1, 1);
+					}
+				}
+				varEscapeState = 0;
+				break;
+			//-----------------------------------------------------
+			case KEY_SOH: // ^A
+				if (varEscapeState == 0) {
+					// start of line
+					//while (varCursor > 0) {
+					//	uartSendString("\033[D"); //move left
+					//	varCursor--;
+					//}
+					uartSendString("\033[1~"); //move to home
+					uart2SendChar(FPGA_CMD_HOME); //home
+				}
+				varEscapeState = 0;
+				break;
+			//-----------------------------------------------------
+			case KEY_ENQ: // ^E
+				if (varEscapeState == 0) {
+					// end of line
+					//while (varCursor < varLen) {
+					//	uartSendString("\033[C"); //move right
+					//	uart2SendChar(FPGA_CMD_RIGHT);
+					//	varCursor++;
+					//}
+					uartSendString("\033[4~"); //move to end
+					uart2SendChar(FPGA_CMD_END); //end
+				}
+				break;
+			//-----------------------------------------------------
+			case KEY_NAK: // ^U
+				break;
+			//-----------------------------------------------------
+			case KEY_VT:  // ^K
+				//delete from cursor to end of line
+				if (varEscapeState == 0) {
+					//set characters after varCursor to null
+					int span = varLen - varCursor + 1;
+					if (span > 0) {
+						memset(line + varCursor, 0, span);
+						varLen = varCursor;
+						uartSendString("\033[K"); //erase to end of line
+						//FIXME
+					}
+				}
+				varEscapeState = 0;
+				break;
+			//-----------------------------------------------------
+			case 'K': // ESC [ K
+				if (varEscapeState == 3 && lastCode == '1') { 
+					//clear to start of line
+					int span = varLen - varCursor + 1;
+					uartSendString("\033[1K"); //erase to end of line
+					uart2SendChar(FPGA_CMD_ERASE_SOL);
+					char temp[STRING_SIZE];
+					zstrncpy(temp, &line[varCursor], span);
+					strcpy(line, temp);
+				} else if (varEscapeState == 3 && lastCode == '2') { 
+					//erase entire line
+					uartSendString("\033[2K");
+					//FIXME for FPGA
+				} else if (varEscapeState == 2 || (varEscapeState == 3 && lastCode == '0')) {
+					//clear to end of line
+					//set characters after varCursor to null
+					int span = varLen - varCursor + 1;
+					if (span > 0) {
+						memset(line + varCursor, 0, span);
+						varLen = varCursor;
+						uartSendString("\033[K"); //erase to end of line
+						//FIXME for FPGA
+					}
+				} else if (varEscapeState == 0) {
+					if (varLen < STRING_SIZE - 1) {
+						line[varCursor++] = 'K';
+						varLen++;
+						HAL_UART_Transmit(&huart1, (uint8_t *)&cin, 1, HAL_MAX_DELAY);
+						HAL_UART_Transmit(&huart2, (uint8_t *)&cin, 1, HAL_MAX_DELAY);
+					}
+				}
+				varEscapeState = 0;
+				break;
+			//-----------------------------------------------------
+			case KEY_ACK: // ^F cursor right
+				if (varCursor < varLen) {
+					varCursor++;
+					HAL_UART_Transmit(&huart1, (uint8_t *)&cin, 1, HAL_MAX_DELAY);
+					HAL_UART_Transmit(&huart2, (uint8_t *)&cin, 1, HAL_MAX_DELAY);
+				}
+				varEscapeState = 0;
+				break;
+			//-----------------------------------------------------
+			case KEY_STX: // ^B
+				if (varCursor > 0) {
+					varCursor--;
+					HAL_UART_Transmit(&huart1, (uint8_t *)&cin, 1, HAL_MAX_DELAY);
+					HAL_UART_Transmit(&huart2, (uint8_t *)&cin, 1, HAL_MAX_DELAY);
+				}
+				varEscapeState = 0;
+				break;
+			//-----------------------------------------------------
+			case KEY_DLE: //^P
+				break;
+			//-----------------------------------------------------
+			case KEY_FF: //^L
+			case KEY_DC2: // 
+				//clear screen
+				varLen = 0; 
+				varCursor = 0; 
+				varEscapeState = 0; //ESC code state
+				*line = '\0';
+				HAL_UART_Transmit(&huart1, (uint8_t *)&cin, 1, HAL_MAX_DELAY);
+				uart2SendChar(FPGA_CMD_CLS);
+				return 0;
+				break;
+			//-----------------------------------------------------
+			case KEY_SO: //^N
+				break;
+			//-----------------------------------------------------
+			case KEY_DEL: // Delete
+				if (varLen > 0) {
+					strcpy(&line[varCursor], &line[varCursor + 1]);
+					uartSendString(&line[varCursor + 1]); //rewrite 
+					uartSendString(" "); 
+					//move backwards to original cursor position
+					for (int i = varCursor; i < varLen; i++)
+						uartSendString("\033[D"); 
+					uart2SendChar(FPGA_CMD_DEL);
+					varLen--;
+				}
+				break;
+			//-----------------------------------------------------
+			case KEY_BS: // backspace
+				if (varCursor > 0) {
+					#ifdef OLDIMPL
+					line[--varCursor] = ' ';
+					//move left overwrite with space, again move left
+					uartSendString("\033[D \033[D"); 
+					//don't update varLen, as we are just replacing chars with space
+					uart2SendChar(FPGA_CMD_BKSP);
+					#else
+					if (varCursor == varLen) {
+						//similar to old implementation
+						uartSendString("\033[D \033[D");
+						varCursor--;
+						varLen--; //length is shortened
+						uart2SendChar(FPGA_CMD_BKSP);
+					} else if (varCursor > 0) {
+						for (int i = varCursor; i < varLen; i++)
+							line[i - 1] = line[i];
+						line[varLen - 1] = ' ';
+
+						//for PC terminal emulator
+						//VT100+ escape code
+						uartSendString("\033[6G"); //after prompt, prompt length = 5
+						uartSendNChars(line, varLen);
+						uartSendNChars(" ", 1);
+						varCursor--;
+						char fmt[10];
+						//VT100+ escape code
+						sprintf(fmt, "\033[%dG", (uint8_t)(6 + varCursor));
+						uartSendString(fmt);
+
+						//for FPGA VGA controller
+						uart2SendChar('\b');
+						varLen--;
+					}
+					#endif
+				}
+				varEscapeState = 0;
+				break;
+			//-----------------------------------------------------
+			default:
+				varEscapeState = 0;
+				if (varLen < STRING_SIZE - 1) {
+					line[varCursor++] = cin;// string entry
+					varLen++; //keep in sync
+					HAL_UART_Transmit(&huart1, (uint8_t *)&cin, 1, HAL_MAX_DELAY);
+					HAL_UART_Transmit(&huart2, (uint8_t *)&cin, 1, HAL_MAX_DELAY);
+				}
+				break;
+		}
+		lastCode = cin;
+	}
+}
+
+static Machine vm;
+int ts2main(void) {
+	initMachine(&vm);
+	showScreen(&vm);
+
+	#ifdef _UNIX
+	struct termios oldt, newt;
+	tcgetattr( STDIN_FILENO, &oldt );
+	newt = oldt;
+	newt.c_lflag &= ~( ICANON | ECHO );
+	tcsetattr( STDIN_FILENO, TCSANOW, &newt );
+	#endif
+
+	char line[STRING_SIZE];
+	while (1) {
+		HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_7);
+		int in = getinput(&vm, line);
+		//printf("in = %d, line = %s, length of input = %d\r\n", in, line, strlen(line));
+		if (in == 0) {
+			//printf("calling interpret with in = %d, line = %s, length of input = %d\r\n", in, line, strlen(line));
+			interpret(&vm, line);
+			showScreen(&vm);
+		} else break;
+		memset(line, 0, STRING_SIZE);
+	}
+
+	printf("Goodbye.\r\n");
+	#ifdef _UNIX
+	tcsetattr( STDIN_FILENO, TCSANOW, &oldt );
+	#endif
+	return 0;
+}
+

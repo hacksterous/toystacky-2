@@ -1,0 +1,13 @@
+../Core/Src/stm32.c:63:6:print	2
+../Core/Src/stm32.c:72:6:get_char	1
+../Core/Src/stm32.c:77:6:get_version	1
+../Core/Src/stm32.c:85:6:print_help	1
+../Core/Src/stm32.c:108:6:clear_screen	1
+../Core/Src/stm32.c:118:6:str_to_u32	2
+../Core/Src/stm32.c:135:6:u32_to_str	3
+../Core/Src/stm32.c:162:6:read_sernum	1
+../Core/Src/stm32.c:177:6:set_sernum	2
+../Core/Src/stm32.c:197:6:save_sernum	1
+../Core/Src/stm32.c:212:5:execute	3
+../Core/Src/stm32.c:240:9:complete	8
+../Core/Src/stm32.c:283:6:sigint	1

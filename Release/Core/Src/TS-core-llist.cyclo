@@ -1,0 +1,12 @@
+../Core/Src/TS-core-llist.c:11:8:insertnode	4
+../Core/Src/TS-core-llist.c:38:8:deletenode	4
+../Core/Src/TS-core-llist.c:62:15:fnll	2
+../Core/Src/TS-core-llist.c:83:15:dfnll	2
+../Core/Src/TS-core-llist.c:105:15:fn	2
+../Core/Src/TS-core-llist.c:114:15:dfn	2
+../Core/Src/TS-core-llist.c:123:6:printc	1
+../Core/Src/TS-core-llist.c:127:6:printl	2
+../Core/Src/TS-core-llist.c:136:6:searchnode	4
+../Core/Src/TS-core-llist.c:152:6:catnode	2
+../Core/Src/TS-core-llist.c:170:15:nrpolysolve	7
+../Core/Src/TS-core-llist.c:198:6:polysolve	28

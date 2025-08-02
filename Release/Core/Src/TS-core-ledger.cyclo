@@ -1,0 +1,13 @@
+../Core/Src/TS-core-ledger.c:18:10:hash	2
+../Core/Src/TS-core-ledger.c:30:6:initializeLedger	1
+../Core/Src/TS-core-ledger.c:37:11:createVariable	7
+../Core/Src/TS-core-ledger.c:76:6:getVariableComplexValue	4
+../Core/Src/TS-core-ledger.c:87:6:getVariableStringVecMatValue	4
+../Core/Src/TS-core-ledger.c:97:15:fetchVariableComplexValue	4
+../Core/Src/TS-core-ledger.c:107:7:fetchVariableStringVecMatValue	4
+../Core/Src/TS-core-ledger.c:116:6:updateComplexVariable	4
+../Core/Src/TS-core-ledger.c:126:6:deleteVariable	3
+../Core/Src/TS-core-ledger.c:140:5:findVariable	3
+../Core/Src/TS-core-ledger.c:155:6:updateLedger	8
+../Core/Src/TS-core-ledger.c:177:6:updateStringVecMatVariable	6
+../Core/Src/TS-core-ledger.c:215:6:compactMemory	6
